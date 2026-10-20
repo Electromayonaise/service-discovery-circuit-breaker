@@ -1,0 +1,38 @@
+# Levanta los tres servicios del taller:  docker compose up --build
+# Los puertos publicados son los mismos que al ejecutarlos localmente (8761, 8001, 8002).
+name: fx-microservices
+
+services:
+  fx-discovery-server:
+    build: ./fx-discovery-server
+    ports:
+      - "8761:8761"
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo > /dev/tcp/localhost/8761"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  fx-course-service:
+    build: ./fx-course-service
+    ports:
+      - "8001:8001"
+    environment:
+      EUREKA_URL: http://fx-discovery-server:8761/eureka/
+      # Nombre con el que se registra en Eureka: es el que usara el catalogo para llamarlo
+      # (homePageUrl = http://fx-course-service:8001/), resoluble dentro de la red de Compose
+      EUREKA_INSTANCE_HOSTNAME: fx-course-service
+    depends_on:
+      fx-discovery-server:
+        condition: service_healthy
+
+  fx-catalog-service:
+    build: ./fx-catalog-service
+    ports:
+      - "8002:8002"
+    environment:
+      EUREKA_URL: http://fx-discovery-server:8761/eureka/
+      EUREKA_INSTANCE_HOSTNAME: fx-catalog-service
+    depends_on:
+      fx-discovery-server:
+        condition: service_healthy

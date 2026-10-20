@@ -16,6 +16,38 @@ implementación de Resilience4j se puede ver con `git diff HEAD~1 -- fx-catalog-
 
 ## Requisitos y ejecución
 
+### Opción A: Docker Compose
+
+Solo requiere Docker. Compila y levanta los tres servicios, en orden (el catálogo y el servicio de cursos esperan
+a que Eureka esté arriba), publicando los mismos puertos que en la ejecución local:
+
+```bash
+docker compose up --build -d      # levantar todo
+docker compose logs -f fx-catalog-service   # ver el log del catálogo (transiciones del circuito, reintentos)
+docker compose down               # bajar todo
+```
+
+Para la demo del Circuit Breaker, en vez de detener el servicio de cursos desde el IDE:
+
+```bash
+docker compose stop fx-course-service    # simular la caída
+docker compose start fx-course-service   # recuperarlo
+```
+
+Diferencias respecto a la ejecución local:
+
+- Dentro de la red de Compose `localhost` no apunta a Eureka. Por eso la URL de Eureka se toma de la variable
+  `EUREKA_URL` (por defecto `http://localhost:8761/eureka/`, así que en local no cambia nada), y cada servicio se
+  registra con el nombre de su contenedor (`EUREKA_INSTANCE_HOSTNAME`). En el panel de Eureka el `homePageUrl`
+  del servicio de cursos aparece como `http://fx-course-service:8001/`.
+- Con el contenedor detenido su nombre deja de resolverse. Las primeras llamadas tardan ~7 s (3 intentos que
+  se cortan con el timeout de conexión de 2 s) hasta que el circuito se abre.
+- `docker compose stop` hace un apagado ordenado, así que el servicio se da de baja en Eureka. Al hacer
+  `start`, Eureka tarda hasta ~30 s en volver a publicarlo, y mientras tanto el circuito puede alternar entre
+  `HALF_OPEN` y `OPEN` antes de cerrarse.
+
+### Opción B: local (IDE o terminal)
+
 - JDK 17 o superior (probado con JDK 21). No hace falta instalar Maven: cada proyecto trae su wrapper (`mvnw`).
 - Arrancar **en este orden**, cada uno en su terminal (o ejecutando la clase `*Application` desde el IDE):
 
