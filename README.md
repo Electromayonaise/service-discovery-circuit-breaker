@@ -323,3 +323,14 @@ taller usa Resilience4j.
   alcance de un taller local está bien, pero no deberían desplegarse así: Eureka no tiene autenticación, la
   consola H2 está habilitada sin contraseña y los endpoints `POST /courses` y `DELETE /{id}` no tienen
   autenticación.
+- Dos decisiones de `fx-catalog-service` se tomaron a propósito para la demostración y tampoco deberían llegar
+  a producción así:
+  - **Los fallbacks incluyen la causa del error en la respuesta** (p. ej.
+    `CallNotPermittedException - CircuitBreaker 'courseService' is OPEN ...`), para que en el navegador se vea
+    por qué se activó el fallback. Eso expone detalles internos (clases, hosts, puertos) a cualquier cliente. En
+    un despliegue real la causa se escribe en el log y el usuario recibe un mensaje fijo.
+  - **Actuator expone sin autenticación** el estado y los eventos de los circuitos y reintentos, con
+    `management.endpoint.health.show-details=always` (paso 7 del taller). En un despliegue real esos endpoints
+    van en un puerto de administración separado y no público (`management.server.port` /
+    `management.server.address`) o detrás de autenticación (`spring-boot-starter-security`), y el detalle de
+    salud se muestra solo a usuarios autorizados (`show-details=when-authorized`).
