@@ -9,8 +9,18 @@ Implementación del taller *"Patrones de Arquitectura de Microservicios"*: descu
 | [fx-course-service](fx-course-service/) | 8001 | [jrquinte/FutureXCourseApp](https://github.com/jrquinte/FutureXCourseApp) | API de cursos (JPA + H2 en memoria) |
 | [fx-catalog-service](fx-catalog-service/) | 8002 | [jrquinte/FutureXCourseCatalog](https://github.com/jrquinte/FutureXCourseCatalog) | Catálogo: consume `fx-course-service` vía Eureka. **Aquí está la implementación de Resilience4j.** |
 
-El primer commit del repositorio contiene el código original de los tres repositorios; el diff de la
-implementación de Resilience4j se puede ver con `git diff HEAD~1 -- fx-catalog-service`.
+El primer commit del repositorio (`78f0853`) contiene el código original de los tres repositorios; el diff de la
+implementación de Resilience4j se puede ver con `git diff 78f0853 6ca065b -- fx-catalog-service`.
+
+Las demostraciones grabadas están en [videos/](videos/):
+
+| Video | Contenido |
+|---|---|
+| [01-service-discovery.mp4](videos/01-service-discovery.mp4) | Servicios en ejecución, panel de Eureka, registro de `fx-course-service` y endpoints del catálogo |
+| [02-circuit-breaker.mp4](videos/02-circuit-breaker.mp4) | Caída y recuperación de `fx-course-service`: Retry, fallbacks y ciclo `CLOSED → OPEN → HALF_OPEN → CLOSED` |
+| [03-actuator-y-pruebas.mp4](videos/03-actuator-y-pruebas.mp4) | Endpoints de Actuator y ejecución de las pruebas automatizadas |
+
+La presentación del taller, con los tres videos embebidos, está en [docs/presentacion.pptx](docs/presentacion.pptx).
 
 ---
 
@@ -74,7 +84,7 @@ abrir el circuito. Basta con esperar ~30 s después de levantar los servicios an
 ```
                     ┌───────────────────────────┐
   (1) registro +    │ fx-discovery-server :8761 │    (2) consulta del registro
-      heartbeat     │         (Eureka)          │        (copia local cada 30 s)
+      heartbeat     │         (Eureka)          │        (copia local cada 5 s)
         ┌──────────►└───────────────────────────┘◄──────────┐
         │                                                   │
 ┌───────┴───────────┐                             ┌─────────┴──────────┐
@@ -105,7 +115,9 @@ abrir el circuito. Basta con esperar ~30 s después de levantar los servicios an
    courses = restTemplate.getForObject(courseAppURL + "/courses", String.class);
    ```
 
-   (Spring normaliza la doble barra de `http://localhost:8001//courses`.)
+   `homePageUrl` termina en `/`, así que la URL queda `http://localhost:8001//courses`. `RestTemplate` arma la
+   URI con `UriComponentsBuilder`, que colapsa la doble barra y envía `GET /courses`. Una petición hecha a mano a
+   `//courses` (por ejemplo con `curl`) devuelve 404.
 
 En [CatalogController.java](fx-catalog-service/src/main/java/com/futurex/services/FutureXCourseCatalog/CatalogController.java)
 esta lógica quedó en el método `getCourseAppURL()`, que usan todos los endpoints.
@@ -122,6 +134,13 @@ solo depende del nombre lógico.
 | http://localhost:8002/firstcourse | `Our first course is Spring Boot Fundamentals` |
 | http://localhost:8761/ | Panel de Eureka con `FX-CATALOG-SERVICE` y `FX-COURSE-SERVICE` registrados |
 | http://localhost:8761/eureka/apps | Registro completo en XML/JSON (host, puerto, `homePageUrl`, estado) |
+
+**Video:** [videos/01-service-discovery.mp4](videos/01-service-discovery.mp4) (1 min). Muestra los tres
+contenedores en ejecución, el panel de Eureka con `FX-CATALOG-SERVICE` y `FX-COURSE-SERVICE` registrados, el
+registro de `fx-course-service` (`hostName`, `status: UP`, `homePageUrl`), el método `getCourseAppURL()` del
+catálogo y las respuestas de `/`, `/catalog` y `/firstcourse`.
+
+[![Service Discovery con Eureka](videos/01-service-discovery.png)](videos/01-service-discovery.mp4)
 
 ---
 
@@ -210,7 +229,7 @@ La clase también registra *listeners* que escriben en el log cada transición d
 
 | URL | Qué muestra |
 |---|---|
-| http://localhost:8002/actuator/health | Estado de cada circuito (`CLOSED` / `CIRCUIT_OPEN` / `CIRCUIT_HALF_OPEN`), tasa de fallo, llamadas |
+| http://localhost:8002/actuator/health | Estado de cada circuito (`UP` si está CLOSED, `CIRCUIT_OPEN`, `CIRCUIT_HALF_OPEN`), tasa de fallo, llamadas. Un circuito abierto no cambia el estado global de la aplicación, que sigue en `UP` |
 | http://localhost:8002/actuator/circuitbreakers | Estado y métricas de `courseService` y `courseServiceFactory` |
 | http://localhost:8002/actuator/circuitbreakerevents | Últimos eventos (éxitos, errores, rechazos, transiciones) |
 | http://localhost:8002/actuator/retries · `/actuator/retryevents` | Configuración y eventos del Retry |
@@ -226,7 +245,23 @@ llama varias veces a un endpoint y muestra latencia, respuesta y estado del circ
 .\scripts\demo-circuit-breaker.ps1 -Path /catalog -Calls 10
 ```
 
-Salida real de una ejecución durante el desarrollo del taller:
+En Linux/macOS, [scripts/demo-circuit-breaker.sh](scripts/demo-circuit-breaker.sh) hace lo mismo (`-w` recorta la
+respuesta mostrada y `-r` termina cuando el circuito vuelve a `CLOSED` después de haberse abierto):
+
+```bash
+./scripts/demo-circuit-breaker.sh -p /catalog -n 10
+```
+
+**Video:** [videos/02-circuit-breaker.mp4](videos/02-circuit-breaker.mp4) (1 min 45 s), grabado con Docker Compose.
+A la izquierda, un panel que consulta cada 500 ms `/actuator/circuitbreakers`, `/actuator/circuitbreakerevents` y
+`/actuator/retryevents`. A la derecha, arriba el script de demostración y abajo el log del catálogo filtrado a las
+transiciones del circuito y los reintentos. El video recorre los pasos 1 a 3 de abajo y además muestra los
+fallbacks de `/`, `/firstcourse` y `/catalog/factory`. En la recuperación el circuito alterna varias veces entre
+`HALF_OPEN` y `OPEN` mientras Eureka vuelve a publicar el servicio de cursos, y luego queda en `CLOSED`.
+
+[![Circuit Breaker con Resilience4j](videos/02-circuit-breaker.png)](videos/02-circuit-breaker.mp4)
+
+Salida real de una ejecución local (sin Docker) durante el desarrollo del taller:
 
 1. **Normal:** `/catalog` responde los cursos; el circuito está `CLOSED`.
 
@@ -287,6 +322,13 @@ verifica el comportamiento sin levantar Eureka ni el servicio de cursos (se simu
 cd fx-catalog-service && ./mvnw test
 ```
 
+**Video:** [videos/03-actuator-y-pruebas.mp4](videos/03-actuator-y-pruebas.mp4) (50 s). Muestra `/actuator/health`
+con el indicador del circuito `courseService`, `/actuator/circuitbreakers` con los dos circuitos (`courseService`,
+de las anotaciones, y `courseServiceFactory`, del `CircuitBreakerFactory`), `/actuator/retries` y la ejecución
+de `./mvnw test` (6 pruebas, `BUILD SUCCESS`).
+
+[![Actuator y pruebas automatizadas](videos/03-actuator-y-pruebas.png)](videos/03-actuator-y-pruebas.mp4)
+
 ---
 
 ## ¿Cómo mejora Resilience4j la resiliencia del sistema?
@@ -340,7 +382,7 @@ taller usa Resilience4j.
 |---|---|---|
 | Estado | Mantenimiento desde 2018; fuera de Spring Cloud desde 2020.0 | Activo; integración oficial con Spring Boot 3 |
 | Diseño | Monolítico: todo pasa por `HystrixCommand` | Modular: se combinan solo los decoradores necesarios |
-| Aislamiento | Pool de hilos por dependencia (por defecto) | Semáforo por defecto; `ThreadPoolBulkhead` opcional |
+| Aislamiento | Pool de hilos por dependencia (por defecto) | Módulo Bulkhead aparte (semáforo o `ThreadPoolBulkhead`); solo aísla si se configura |
 | Ventana del circuito | Por tiempo (10 s) | Por cantidad de llamadas o por tiempo, configurable |
 | Detección de lentitud | Solo timeout | Además, umbral de llamadas lentas (`slowCallRateThreshold`) |
 | Patrones extra | Cache y collapsing de peticiones | Retry, RateLimiter, TimeLimiter, Bulkhead, Cache |
@@ -362,7 +404,9 @@ taller usa Resilience4j.
     por qué se activó el fallback. Eso expone detalles internos (clases, hosts, puertos) a cualquier cliente. En
     un despliegue real la causa se escribe en el log y el usuario recibe un mensaje fijo.
   - **Actuator expone sin autenticación** el estado y los eventos de los circuitos y reintentos, con
-    `management.endpoint.health.show-details=always` (paso 7 del taller). En un despliegue real esos endpoints
+    `management.endpoint.health.show-details=always` (paso 7 del taller). Además, `/actuator/circuitbreakers/{nombre}`
+    acepta `POST` (p. ej. `{"updateState":"FORCE_OPEN"}`), así que cualquier cliente puede abrir, cerrar o
+    deshabilitar un circuito. En un despliegue real esos endpoints
     van en un puerto de administración separado y no público (`management.server.port` /
     `management.server.address`) o detrás de autenticación (`spring-boot-starter-security`), y el detalle de
     salud se muestra solo a usuarios autorizados (`show-details=when-authorized`).
