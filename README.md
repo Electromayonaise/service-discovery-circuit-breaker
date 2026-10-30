@@ -12,15 +12,15 @@ Implementación del taller *"Patrones de Arquitectura de Microservicios"*: descu
 El primer commit del repositorio (`78f0853`) contiene el código original de los tres repositorios; el diff de la
 implementación de Resilience4j se puede ver con `git diff 78f0853 6ca065b -- fx-catalog-service`.
 
-Las demostraciones grabadas están en [docs/videos/](docs/videos/):
+Las demostraciones grabadas están en [docs/taller-1/videos/](docs/taller-1/videos/):
 
 | Video | Contenido |
 |---|---|
-| [01-service-discovery.mp4](docs/videos/01-service-discovery.mp4) | Servicios en ejecución, panel de Eureka, registro de `fx-course-service` y endpoints del catálogo |
-| [02-circuit-breaker.mp4](docs/videos/02-circuit-breaker.mp4) | Caída y recuperación de `fx-course-service`: Retry, fallbacks y ciclo `CLOSED → OPEN → HALF_OPEN → CLOSED` |
-| [03-actuator-y-pruebas.mp4](docs/videos/03-actuator-y-pruebas.mp4) | Endpoints de Actuator y ejecución de las pruebas automatizadas |
+| [01-service-discovery.mp4](docs/taller-1/videos/01-service-discovery.mp4) | Servicios en ejecución, panel de Eureka, registro de `fx-course-service` y endpoints del catálogo |
+| [02-circuit-breaker.mp4](docs/taller-1/videos/02-circuit-breaker.mp4) | Caída y recuperación de `fx-course-service`: Retry, fallbacks y ciclo `CLOSED → OPEN → HALF_OPEN → CLOSED` |
+| [03-actuator-y-pruebas.mp4](docs/taller-1/videos/03-actuator-y-pruebas.mp4) | Endpoints de Actuator y ejecución de las pruebas automatizadas |
 
-La presentación del taller está en [docs/Service Discovery y Circuit Breaker.pptx](docs/Service%20Discovery%20y%20Circuit%20Breaker.pptx)
+La presentación del taller está en [docs/taller-1/Service Discovery y Circuit Breaker.pptx](docs/taller-1/Service%20Discovery%20y%20Circuit%20Breaker.pptx)
 y en [Google Slides](https://docs.google.com/presentation/d/1VCZI7s0JWCUvA7sw9SCGql2F5T78GnkrHbaOiZ5TvG4/edit?usp=sharing).
 
 ---
@@ -136,12 +136,12 @@ solo depende del nombre lógico.
 | http://localhost:8761/ | Panel de Eureka con `FX-CATALOG-SERVICE` y `FX-COURSE-SERVICE` registrados |
 | http://localhost:8761/eureka/apps | Registro completo en XML/JSON (host, puerto, `homePageUrl`, estado) |
 
-**Video:** [docs/videos/01-service-discovery.mp4](docs/videos/01-service-discovery.mp4) (1 min). Muestra los tres
+**Video:** [docs/taller-1/videos/01-service-discovery.mp4](docs/taller-1/videos/01-service-discovery.mp4) (1 min). Muestra los tres
 contenedores en ejecución, el panel de Eureka con `FX-CATALOG-SERVICE` y `FX-COURSE-SERVICE` registrados, el
 registro de `fx-course-service` (`hostName`, `status: UP`, `homePageUrl`), el método `getCourseAppURL()` del
 catálogo y las respuestas de `/`, `/catalog` y `/firstcourse`.
 
-[![Service Discovery con Eureka](docs/videos/01-service-discovery.png)](docs/videos/01-service-discovery.mp4)
+[![Service Discovery con Eureka](docs/taller-1/videos/01-service-discovery.png)](docs/taller-1/videos/01-service-discovery.mp4)
 
 ---
 
@@ -253,14 +253,14 @@ respuesta mostrada y `-r` termina cuando el circuito vuelve a `CLOSED` después 
 ./scripts/demo-circuit-breaker.sh -p /catalog -n 10
 ```
 
-**Video:** [docs/videos/02-circuit-breaker.mp4](docs/videos/02-circuit-breaker.mp4) (1 min 45 s), grabado con Docker Compose.
+**Video:** [docs/taller-1/videos/02-circuit-breaker.mp4](docs/taller-1/videos/02-circuit-breaker.mp4) (1 min 45 s), grabado con Docker Compose.
 A la izquierda, un panel que consulta cada 500 ms `/actuator/circuitbreakers`, `/actuator/circuitbreakerevents` y
 `/actuator/retryevents`. A la derecha, arriba el script de demostración y abajo el log del catálogo filtrado a las
 transiciones del circuito y los reintentos. El video recorre los pasos 1 a 3 de abajo y además muestra los
 fallbacks de `/`, `/firstcourse` y `/catalog/factory`. En la recuperación el circuito alterna varias veces entre
 `HALF_OPEN` y `OPEN` mientras Eureka vuelve a publicar el servicio de cursos, y luego queda en `CLOSED`.
 
-[![Circuit Breaker con Resilience4j](docs/videos/02-circuit-breaker.png)](docs/videos/02-circuit-breaker.mp4)
+[![Circuit Breaker con Resilience4j](docs/taller-1/videos/02-circuit-breaker.png)](docs/taller-1/videos/02-circuit-breaker.mp4)
 
 Salida real de una ejecución local (sin Docker) durante el desarrollo del taller:
 
@@ -323,12 +323,12 @@ verifica el comportamiento sin levantar Eureka ni el servicio de cursos (se simu
 cd fx-catalog-service && ./mvnw test
 ```
 
-**Video:** [docs/videos/03-actuator-y-pruebas.mp4](docs/videos/03-actuator-y-pruebas.mp4) (50 s). Muestra `/actuator/health`
+**Video:** [docs/taller-1/videos/03-actuator-y-pruebas.mp4](docs/taller-1/videos/03-actuator-y-pruebas.mp4) (50 s). Muestra `/actuator/health`
 con el indicador del circuito `courseService`, `/actuator/circuitbreakers` con los dos circuitos (`courseService`,
 de las anotaciones, y `courseServiceFactory`, del `CircuitBreakerFactory`), `/actuator/retries` y la ejecución
 de `./mvnw test` (6 pruebas, `BUILD SUCCESS`).
 
-[![Actuator y pruebas automatizadas](docs/videos/03-actuator-y-pruebas.png)](docs/videos/03-actuator-y-pruebas.mp4)
+[![Actuator y pruebas automatizadas](docs/taller-1/videos/03-actuator-y-pruebas.png)](docs/taller-1/videos/03-actuator-y-pruebas.mp4)
 
 ---
 
