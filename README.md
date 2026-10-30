@@ -392,6 +392,35 @@ taller usa Resilience4j.
 
 ---
 
+## Taller 2 — OpenTelemetry, parte 1: agente Java
+
+Esta rama (`otel-agente-java`) instrumenta `fx-course-service` y `fx-catalog-service` con el
+[agente Java de OpenTelemetry](https://github.com/open-telemetry/opentelemetry-java-instrumentation) (v2.32.0),
+sin cambios en el código Java. Las trazas se envían por OTLP/gRPC directamente a Jaeger. El enunciado y las guías
+están en [docs/taller-2/](docs/taller-2/).
+
+- **Docker Compose:** `docker compose up --build -d` levanta también Jaeger (UI en http://localhost:16686). Los
+  Dockerfiles descargan el agente y arrancan la aplicación con
+  `java -javaagent:opentelemetry-javaagent.jar -Dotel.javaagent.configuration-file=otel.properties -jar app.jar`.
+  `OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317` reemplaza el `localhost:4317` de `application.properties`.
+- **Local:**
+
+  ```bash
+  ./scripts/download-otel-agent.sh          # deja opentelemetry-javaagent.jar en la raíz (ignorado por git)
+  docker compose up -d jaeger
+  cd fx-course-service && ./mvnw -q package -DskipTests
+  java -javaagent:../opentelemetry-javaagent.jar \
+       -Dotel.javaagent.configuration-file=src/main/resources/application.properties \
+       -jar target/FutureXCourseApp-0.0.1-SNAPSHOT.jar
+  ```
+
+  (igual para `fx-catalog-service`, con Eureka en ejecución).
+
+El agente **no** lee `application.properties` por sí solo: sin `-Dotel.javaagent.configuration-file` usaría sus
+valores por defecto (OTLP por HTTP al puerto 4318) e ignoraría las propiedades `otel.*` del archivo.
+
+---
+
 ## Notas
 
 - Se mantuvo el código y la configuración originales de `fx-discovery-server` y `fx-course-service`. Para el

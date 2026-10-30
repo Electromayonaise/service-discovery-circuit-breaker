@@ -7,3 +7,6 @@ target/
 .metals/
 .bloop/
 .bsp/
+
+# Agente Java de OpenTelemetry (se descarga con scripts/download-otel-agent.sh)
+opentelemetry-javaagent.jar
