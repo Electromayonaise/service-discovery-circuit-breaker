@@ -3,6 +3,7 @@ package com.futurex.services.FutureXCourseCatalog;
 import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.api.trace.Tracer;
+import io.opentelemetry.api.trace.propagation.W3CTraceContextPropagator;
 import io.opentelemetry.context.propagation.ContextPropagators;
 import io.opentelemetry.exporter.otlp.trace.OtlpGrpcSpanExporter;
 import io.opentelemetry.sdk.OpenTelemetrySdk;
@@ -20,8 +21,8 @@ public class OpenTelemetryConfig {
     @Value("${spring.application.name}")
     private String applicationName;
 
-    // OTLP gRPC endpoint of Jaeger (localhost:4317 by default, jaeger:4317 inside Docker Compose)
-    @Value("${otel.exporter.otlp.endpoint:http://localhost:4317}")
+    // OTLP gRPC endpoint of the OpenTelemetry Collector (otel.exporter.otlp.endpoint in application.properties)
+    @Value("${otel.exporter.otlp.endpoint}")
     private String otlpEndpoint;
 
     @Bean
@@ -40,7 +41,9 @@ public class OpenTelemetryConfig {
 
         return OpenTelemetrySdk.builder()
                 .setTracerProvider(sdkTracerProvider)
-                .setPropagators(ContextPropagators.noop())
+                // W3C Trace Context: outgoing calls carry the traceparent header, so the spans of both
+                // services join the same trace
+                .setPropagators(ContextPropagators.create(W3CTraceContextPropagator.getInstance()))
                 .buildAndRegisterGlobal();
     }
 

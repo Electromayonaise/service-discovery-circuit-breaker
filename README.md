@@ -392,22 +392,37 @@ taller usa Resilience4j.
 
 ---
 
-## Taller 2 — OpenTelemetry, parte 2: API de OpenTelemetry
+## Taller 2 — OpenTelemetry
 
-Esta rama (`otel-api`) agrega a `fx-course-service` y `fx-catalog-service` el
-`opentelemetry-spring-boot-starter` (BOM `opentelemetry-instrumentation-bom` 2.6.0) y una clase
-`OpenTelemetryConfig` que construye el SDK y exporta las trazas por OTLP/gRPC directamente a Jaeger. Los
-controladores crean spans manuales (`getCatalog`, `getCourses`, …) con el `Tracer` de esa clase. El enunciado y
-las guías están en [docs/taller-2/](docs/taller-2/).
+Implementación del taller *"Implementación de OpenTelemetry en Microservicios"*: trazas distribuidas de
+`fx-course-service` y `fx-catalog-service` visualizadas en **Jaeger**, con tres enfoques. El enunciado y las guías
+están en [docs/taller-2/](docs/taller-2/) y el informe con las evidencias, en
+[docs/taller-2/informe.md](docs/taller-2/informe.md).
 
-- `docker compose up --build -d` levanta también Jaeger (UI en http://localhost:16686).
-  `OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317` le indica al exportador dónde está Jaeger dentro de Compose;
-  en local usa `http://localhost:4317`.
-- Como pide la guía, `OpenTelemetryConfig` usa `ContextPropagators.noop()`: el catálogo no envía la cabecera
-  `traceparent`, así que cada servicio produce su propia traza y en Jaeger la llamada del catálogo y la del
-  servicio de cursos aparecen como trazas separadas.
-- Los spans manuales se activan con `span.makeCurrent()` dentro de `@CircuitBreaker`/`@Retry`: la llamada de
-  `RestTemplate` queda como hija del span manual y cada reintento aparece como un span propio.
+| Parte | Enfoque | Rama | Envío de trazas |
+|---|---|---|---|
+| 1 | Agente Java de OpenTelemetry (sin cambios en el código) | `otel-agente-java` | Aplicación → Jaeger |
+| 2 | API/SDK de OpenTelemetry (`OpenTelemetryConfig` + spans manuales) | `otel-api` | Aplicación → Jaeger |
+| 3 | API/SDK + OpenTelemetry Collector | `otel-colector` (integrada en `main`) | Aplicación → Collector → Jaeger |
+
+La rama `otel-colector` parte de `otel-api`, porque la guía 3 extiende la 2. `main` contiene la parte 3.
+
+### Ejecución (parte 3)
+
+```bash
+docker compose up --build -d     # Eureka, servicios, OpenTelemetry Collector y Jaeger
+curl localhost:8002/catalog      # generar tráfico
+```
+
+- Jaeger: http://localhost:16686 (servicios `fx-catalog-service` y `fx-course-service`).
+- Los servicios exportan por OTLP/gRPC a `otel-collector:4317` (`OTEL_EXPORTER_OTLP_ENDPOINT`); en local,
+  `application.properties` apunta a `http://localhost:4319`, el puerto del Collector publicado por Compose.
+- La configuración del Collector está en [otel-collector/otel-collector-config.yaml](otel-collector/otel-collector-config.yaml):
+  receptor OTLP, procesador `batch` y exportadores `otlp` (Jaeger) y `debug`. `docker compose logs otel-collector`
+  muestra un `TracesExporter` por cada lote reenviado.
+- `OpenTelemetryConfig` usa el propagador W3C Trace Context, así que una petición al catálogo produce una sola
+  traza con los spans de ambos servicios: `GET /catalog` → `getCatalog` → `GET` → `GET /courses` →
+  `getCourses` → SQL.
 
 ---
 

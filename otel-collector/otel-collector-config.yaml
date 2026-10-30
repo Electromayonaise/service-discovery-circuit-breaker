@@ -1,0 +1,27 @@
+# Configuracion del OpenTelemetry Collector (taller 2, parte 3).
+# Recibe las trazas de fx-course-service y fx-catalog-service por OTLP, las agrupa en lotes y las
+# reenvia a Jaeger por OTLP/gRPC. El exportador debug escribe en el log del Collector un resumen de cada
+# lote recibido, para comprobar que las trazas pasan por aqui.
+receivers:
+  otlp:
+    protocols:
+      grpc:
+      http:
+
+processors:
+  batch:
+
+exporters:
+  otlp:
+    endpoint: "jaeger:4317"
+    tls:
+      insecure: true
+  debug:
+    verbosity: basic
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp, debug]
