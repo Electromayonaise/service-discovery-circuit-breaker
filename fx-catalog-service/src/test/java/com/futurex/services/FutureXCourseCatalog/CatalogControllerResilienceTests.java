@@ -2,9 +2,11 @@ package com.futurex.services.FutureXCourseCatalog;
 
 import com.netflix.appinfo.InstanceInfo;
 import com.netflix.discovery.EurekaClient;
+import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -52,6 +54,12 @@ class CatalogControllerResilienceTests {
     private EurekaClient eurekaClient;
 
     private CircuitBreaker circuitBreaker;
+
+    // OpenTelemetryConfig registers the SDK globally; each new Spring test context needs a clean global
+    @BeforeAll
+    static void resetGlobalOpenTelemetry() {
+        GlobalOpenTelemetry.resetForTest();
+    }
 
     @BeforeEach
     void setUp() {

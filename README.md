@@ -392,6 +392,40 @@ taller usa Resilience4j.
 
 ---
 
+## Taller 2 — OpenTelemetry
+
+Implementación del taller *"Implementación de OpenTelemetry en Microservicios"*: trazas distribuidas de
+`fx-course-service` y `fx-catalog-service` visualizadas en **Jaeger**, con tres enfoques. El enunciado y las guías
+están en [docs/taller-2/](docs/taller-2/) y el informe con las evidencias, en
+[docs/taller-2/informe.md](docs/taller-2/informe.md).
+
+| Parte | Enfoque | Rama | Envío de trazas |
+|---|---|---|---|
+| 1 | Agente Java de OpenTelemetry (sin cambios en el código) | `otel-agente-java` | Aplicación → Jaeger |
+| 2 | API/SDK de OpenTelemetry (`OpenTelemetryConfig` + spans manuales) | `otel-api` | Aplicación → Jaeger |
+| 3 | API/SDK + OpenTelemetry Collector | `otel-colector` (integrada en `main`) | Aplicación → Collector → Jaeger |
+
+La rama `otel-colector` parte de `otel-api`, porque la guía 3 extiende la 2. `main` contiene la parte 3.
+
+### Ejecución (parte 3)
+
+```bash
+docker compose up --build -d     # Eureka, servicios, OpenTelemetry Collector y Jaeger
+curl localhost:8002/catalog      # generar tráfico
+```
+
+- Jaeger: http://localhost:16686 (servicios `fx-catalog-service` y `fx-course-service`).
+- Los servicios exportan por OTLP/gRPC a `otel-collector:4317` (`OTEL_EXPORTER_OTLP_ENDPOINT`); en local,
+  `application.properties` apunta a `http://localhost:4319`, el puerto del Collector publicado por Compose.
+- La configuración del Collector está en [otel-collector/otel-collector-config.yaml](otel-collector/otel-collector-config.yaml):
+  receptor OTLP, procesador `batch` y exportadores `otlp` (Jaeger) y `debug`. `docker compose logs otel-collector`
+  muestra un `TracesExporter` por cada lote reenviado.
+- `OpenTelemetryConfig` usa el propagador W3C Trace Context, así que una petición al catálogo produce una sola
+  traza con los spans de ambos servicios: `GET /catalog` → `getCatalog` → `GET` → `GET /courses` →
+  `getCourses` → SQL.
+
+---
+
 ## Notas
 
 - Se mantuvo el código y la configuración originales de `fx-discovery-server` y `fx-course-service`. Para el
