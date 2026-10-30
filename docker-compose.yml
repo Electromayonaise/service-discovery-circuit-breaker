@@ -1,5 +1,7 @@
-# Levanta los tres servicios del taller:  docker compose up --build
+# Levanta los tres servicios del taller y Jaeger:  docker compose up --build
 # Los puertos publicados son los mismos que al ejecutarlos localmente (8761, 8001, 8002).
+# Taller 2, parte 2: fx-course-service y fx-catalog-service usan la API/SDK de OpenTelemetry
+# (OpenTelemetryConfig) y envian las trazas directamente a Jaeger (UI en http://localhost:16686).
 name: fx-microservices
 
 services:
@@ -22,9 +24,13 @@ services:
       # Nombre con el que se registra en Eureka: es el que usara el catalogo para llamarlo
       # (homePageUrl = http://fx-course-service:8001/), resoluble dentro de la red de Compose
       EUREKA_INSTANCE_HOSTNAME: fx-course-service
+      # Exportador OTLP de OpenTelemetryConfig: dentro de la red de Compose Jaeger no esta en localhost
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
     depends_on:
       fx-discovery-server:
         condition: service_healthy
+      jaeger:
+        condition: service_started
 
   fx-catalog-service:
     build: ./fx-catalog-service
@@ -33,6 +39,20 @@ services:
     environment:
       EUREKA_URL: http://fx-discovery-server:8761/eureka/
       EUREKA_INSTANCE_HOSTNAME: fx-catalog-service
+      # Exportador OTLP de OpenTelemetryConfig: dentro de la red de Compose Jaeger no esta en localhost
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
     depends_on:
       fx-discovery-server:
         condition: service_healthy
+      jaeger:
+        condition: service_started
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.76.0
+    ports:
+      - "16686:16686"   # Web UI
+      - "14250:14250"   # gRPC for Jaeger-to-Jaeger communication
+      - "4317:4317"     # OTLP gRPC receiver
+      - "4318:4318"     # OTLP HTTP receiver
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true

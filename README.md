@@ -392,6 +392,25 @@ taller usa Resilience4j.
 
 ---
 
+## Taller 2 — OpenTelemetry, parte 2: API de OpenTelemetry
+
+Esta rama (`otel-api`) agrega a `fx-course-service` y `fx-catalog-service` el
+`opentelemetry-spring-boot-starter` (BOM `opentelemetry-instrumentation-bom` 2.6.0) y una clase
+`OpenTelemetryConfig` que construye el SDK y exporta las trazas por OTLP/gRPC directamente a Jaeger. Los
+controladores crean spans manuales (`getCatalog`, `getCourses`, …) con el `Tracer` de esa clase. El enunciado y
+las guías están en [docs/taller-2/](docs/taller-2/).
+
+- `docker compose up --build -d` levanta también Jaeger (UI en http://localhost:16686).
+  `OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317` le indica al exportador dónde está Jaeger dentro de Compose;
+  en local usa `http://localhost:4317`.
+- Como pide la guía, `OpenTelemetryConfig` usa `ContextPropagators.noop()`: el catálogo no envía la cabecera
+  `traceparent`, así que cada servicio produce su propia traza y en Jaeger la llamada del catálogo y la del
+  servicio de cursos aparecen como trazas separadas.
+- Los spans manuales se activan con `span.makeCurrent()` dentro de `@CircuitBreaker`/`@Retry`: la llamada de
+  `RestTemplate` queda como hija del span manual y cada reintento aparece como un span propio.
+
+---
+
 ## Notas
 
 - Se mantuvo el código y la configuración originales de `fx-discovery-server` y `fx-course-service`. Para el
