@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Logs to the console (as before) and to OpenTelemetry. The OpenTelemetryAppender turns each Logback event into an
+  OpenTelemetry log record with the trace_id/span_id of the current span; the Spring Boot starter installs the
+  OpenTelemetry bean of OpenTelemetryConfig into it, which exports the records to the Collector.
+  defaults.xml + console-appender.xml instead of the guide's base.xml: base.xml already declares a root logger with
+  CONSOLE and a FILE appender, so declaring root again would print every line to the console twice.
+-->
+<configuration>
+    <!-- Logback only prints its own status messages when they are errors. Spring Boot 3.3's defaults.xml still uses
+         the deprecated converterClass attribute, and without this listener every startup dumps Logback's whole
+         configuration status because of those warnings -->
+    <statusListener class="ch.qos.logback.core.status.OnErrorConsoleStatusListener"/>
+
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+    <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
+
+    <appender name="OTLP" class="io.opentelemetry.instrumentation.logback.appender.v1_0.OpenTelemetryAppender">
+        <captureExperimentalAttributes>true</captureExperimentalAttributes>
+        <captureMarkerAttribute>true</captureMarkerAttribute>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="OTLP"/>
+    </root>
+</configuration>
