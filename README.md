@@ -426,6 +426,132 @@ curl localhost:8002/catalog      # generar tráfico
 
 ---
 
+## Taller 4 — Observabilidad con OpenTelemetry Collector (guía 3)
+
+Implementación de la guía *"Configuración de Observabilidad con OpenTelemetry Collector"*, la base del taller 4
+de monitoreo y observabilidad. Los dos servicios envían **trazas, métricas y logs** por OTLP al Collector, que los
+reparte:
+
+```text
+fx-course-service ─┐                     ┌─ trazas   → Jaeger                                  :16686
+                   ├─ OTLP → Collector ──┼─ métricas → :8889/metrics → Prometheus :9090 → Grafana :3000
+fx-catalog-service ┘                     └─ logs     → logs/otel-collector.log → Logstash → Elasticsearch :9200 → Kibana :5601
+```
+
+El informe con las consultas, los dashboards, las alertas y las capturas está en
+[docs/taller-4/informe.md](docs/taller-4/informe.md).
+
+```bash
+docker compose up --build -d                       # servicios + Collector, Jaeger, Prometheus, Grafana, ELK y kibana-setup
+docker compose --profile trafico up -d trafico     # tráfico continuo (incluye GET /99, que responde 500)
+docker compose stop fx-course-service              # provocar fallbacks, abrir el circuito y disparar alertas (luego: start)
+docker compose --profile trafico stop trafico      # detener el tráfico
+```
+
+| Herramienta | URL | Notas |
+|---|---|---|
+| Jaeger | http://localhost:16686 | Igual que en el taller 2 |
+| Prometheus | http://localhost:9090 | Scrapea `otel-collector:8889` cada 10 s |
+| Grafana | http://localhost:3000 | `admin` / `admin`. Dashboard *Microservicios FutureX — Observabilidad* y 3 reglas de alerta, cargados por provisioning |
+| Kibana | http://localhost:5601 | `kibana-setup` importa el patrón de índice `otel-logs-*`, las búsquedas, las visualizaciones y el dashboard *Logs de microservicios (OpenTelemetry)* |
+| Elasticsearch | http://localhost:9200 | Índice diario `otel-logs-AAAA.MM.DD` |
+
+Las herramientas de observabilidad solo se publican en `127.0.0.1`, porque no tienen autenticación o usan
+`admin/admin`.
+
+### Qué se agregó
+
+- **Collector** ([otel-collector-config.yaml](otel-collector/otel-collector-config.yaml)): pipelines de métricas
+  (exportador `prometheus`, prefijo `otel_`) y de logs (exportador `file`), además del de trazas.
+- **Servicios**:
+  - `OpenTelemetryConfig` registra también un `MeterProvider` y un `LoggerProvider`.
+  - [logback-spring.xml](fx-catalog-service/src/main/resources/logback-spring.xml) agrega el `OpenTelemetryAppender`,
+    así que cada log sale por OTLP con el `trace_id` y el `span_id` de la petición.
+  - `micrometer-registry-otlp` envía las métricas de Spring Boot, la JVM, el proceso y Resilience4j, y las propias
+    de los controladores.
+- **Métricas propias** (Micrometer):
+  - `catalog.*.request` (Timer por endpoint con etiqueta `outcome` = `success`/`error`);
+  - `catalog.fallback` (contador por `endpoint` y `cause`);
+  - `courses.accessed` (contador por `endpoint`).
+- **Prometheus**: [prometheus.yml](observability/prometheus/prometheus.yml).
+- **Grafana** ([provisioning](observability/grafana/provisioning/)):
+  - la fuente de datos Prometheus;
+  - el dashboard [fx-observabilidad.json](observability/grafana/provisioning/dashboards/json/fx-observabilidad.json):
+    tráfico, latencia, errores, circuito y Retry, CPU y memoria;
+  - las alertas [alert-rules.yml](observability/grafana/provisioning/alerting/alert-rules.yml): circuito abierto,
+    tasa de error del catálogo > 20 % y p95 de `/catalog` > 1 s.
+- **Logstash**: [logstash.conf](observability/logstash/logstash.conf) + [otlp_logs.rb](observability/logstash/otlp_logs.rb),
+  con la plantilla de índice [otel-logs-template.json](observability/logstash/otel-logs-template.json), que deja
+  `service.name`, `log.level` y `trace.id` como `keyword`.
+- **Kibana**: [kibana-objects.ndjson](observability/kibana/kibana-objects.ndjson), importado por
+  [kibana-setup.sh](observability/kibana/kibana-setup.sh). En el patrón de índice, `trace.id` es un enlace a la
+  traza en Jaeger.
+- **Tráfico**: [generar-trafico.sh](observability/trafico/generar-trafico.sh) (perfil `trafico` de Compose).
+
+En Prometheus las métricas llevan el prefijo `otel_` y el servicio va en la etiqueta `exported_job`. Por ejemplo,
+`catalog.courses.request` se convierte en `otel_catalog_courses_request_seconds_{sum,count,bucket}`. En
+Elasticsearch cada log es un documento con:
+
+- `@timestamp`, `message`;
+- `log.level`, `log.logger`;
+- `service.name`;
+- `trace.id`, `span.id`;
+- `attributes.*` y `resource.*`.
+
+### Consultas de ejemplo (verificadas)
+
+```text
+# Kibana (KQL): errores de fx-catalog-service en las últimas 24 h (con el rango de tiempo "Last 24 hours")
+service.name : "fx-catalog-service" and log.level : "ERROR"
+```
+
+```promql
+# Tiempo de respuesta promedio de /catalog en los últimos 15 min
+rate(otel_catalog_courses_request_seconds_sum{endpoint="/catalog"}[15m])
+  / rate(otel_catalog_courses_request_seconds_count{endpoint="/catalog"}[15m])
+
+# Peticiones por minuto por servicio y endpoint
+sum by (exported_job, uri) (rate(otel_http_server_requests_seconds_count[1m])) * 60
+
+# CPU y memoria heap de cada servicio
+otel_process_cpu_usage
+sum by (exported_job) (otel_jvm_memory_used_bytes{area="heap"})
+
+# Estado del circuito y fallbacks por causa
+otel_resilience4j_circuitbreaker_state == 1
+sum by (endpoint, cause) (increase(otel_catalog_fallback_total[5m]))
+```
+
+**Ojo con el % de errores:**
+
+- Los fallbacks del catálogo responden HTTP 200. Por eso `otel_http_server_requests_seconds_count{status="500"}`
+  solo cuenta los errores de `fx-course-service`. Los fallos del catálogo están en la etiqueta `outcome="error"` de
+  `otel_catalog_*_request_seconds_count` y en `otel_catalog_fallback_total`.
+- En los logs pasa algo parecido: `GET /99` de `fx-course-service` deja un `WARN` de Spring, no un `ERROR`.
+
+### Diferencias con la guía
+
+- **Versiones**: Grafana 11.6.0 en vez de 8.1.2, y Elasticsearch, Logstash y Kibana 7.17.28 en vez de 7.14.0.
+  - Grafana 8.1.2 tiene un *path traversal* sin autenticación (CVE-2021-43798).
+  - ELK 7.14.0 trae Log4j vulnerable a Log4Shell.
+  - Prometheus (v2.30.3) y el Collector (0.88.0) son los de la guía.
+- **Exportador `debug`** en lugar de `logging`, que en 0.88.0 está deprecado.
+- **Métricas por dos caminos**:
+  - el SDK (`MeterProvider`) exporta por OTLP/gRPC las métricas HTTP del starter;
+  - Micrometer exporta por OTLP/HTTP (`management.otlp.metrics.export.url`) las de Spring Boot y las propias.
+
+  Los dos llegan al mismo Collector.
+- **Logstash separa los lotes**. Con el filtro `json` de la guía, cada línea del archivo (un lote OTLP con muchos
+  logs) quedaría como un solo documento con arreglos anidados, y no se podría filtrar por servicio o nivel.
+  [otlp_logs.rb](observability/logstash/otlp_logs.rb) produce un documento por log, con un id determinista
+  (releer el archivo no duplica documentos).
+  - El código está en un archivo y no inline en el filtro `ruby`. Con el código inline, los workers del pipeline
+    compartían variables y mezclaban campos de logs distintos.
+- `fx-course-service` no tenía `spring-boot-starter-actuator` (la guía lo pide en ambos servicios). Sin él no se
+  autoconfigura Micrometer y el servicio no arrancaba.
+
+---
+
 ## Notas
 
 - Se mantuvo el código y la configuración originales de `fx-discovery-server` y `fx-course-service`. Para el
