@@ -1,0 +1,104 @@
+# Reglas de alerta de Grafana (bonus del taller 4), cargadas al arrancar. Se evaluan cada 10 s sobre Prometheus y se
+# ven en Alerting > Alert rules. No hay un canal de notificacion configurado (correo, Slack, ...): el estado de cada
+# regla (Normal / Pending / Firing) se ve en la interfaz y en el panel de alertas del dashboard.
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: fx-microservicios
+    folder: Microservicios FutureX
+    interval: 10s
+    rules:
+      # Resilience4j abrio el circuito: fx-course-service esta fallando y el catalogo responde con el fallback
+      - uid: fx-circuito-abierto
+        title: Circuito courseService abierto
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 60, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: max(otel_resilience4j_circuitbreaker_state{exported_job="fx-catalog-service", name="courseService", state=~"open|forced_open"})
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+        noDataState: OK
+        execErrState: Error
+        for: 0s
+        labels:
+          severity: critical
+          service: fx-catalog-service
+        annotations:
+          summary: El Circuit Breaker courseService de fx-catalog-service esta abierto
+          description: >-
+            fx-course-service supero el umbral de fallos y el catalogo dejo de llamarlo: todas las respuestas son el
+            fallback hasta que el circuito pase a HALF_OPEN y las llamadas de prueba tengan exito.
+
+      # Mas del 20 % de las peticiones del catalogo en el ultimo minuto se resolvieron con un fallback
+      - uid: fx-catalogo-tasa-error
+        title: Tasa de error alta en fx-catalog-service
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 120, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: >-
+                (sum(rate(otel_catalog_fallback_total[1m])) or vector(0))
+                / sum(rate(otel_http_server_requests_seconds_count{exported_job="fx-catalog-service"}[1m]))
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0.2] }
+        noDataState: OK
+        execErrState: Error
+        for: 30s
+        labels:
+          severity: warning
+          service: fx-catalog-service
+        annotations:
+          summary: "Mas del 20 % de las peticiones del catalogo terminan en fallback ({{ humanizePercentage $values.A.Value }})"
+          description: Revisar si fx-course-service esta caido o lento (panel "Fallbacks por endpoint y causa").
+
+      # El percentil 95 de /catalog supera 1 s: llamadas lentas a fx-course-service o reintentos
+      - uid: fx-catalogo-latencia
+        title: Latencia p95 alta en /catalog
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 120, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: histogram_quantile(0.95, sum by (le) (rate(otel_catalog_courses_request_seconds_bucket{endpoint="/catalog"}[1m])))
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [1] }
+        noDataState: OK
+        execErrState: Error
+        for: 30s
+        labels:
+          severity: warning
+          service: fx-catalog-service
+        annotations:
+          summary: "El p95 de /catalog es {{ humanizeDuration $values.A.Value }} (umbral: 1 s)"
+          description: Cada intento fallido contra fx-course-service puede tardar hasta el timeout de conexion de 2 s.

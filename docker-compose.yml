@@ -1,8 +1,17 @@
-# Levanta los tres servicios del taller, el Collector y Jaeger:  docker compose up --build
-# Los puertos publicados son los mismos que al ejecutarlos localmente (8761, 8001, 8002).
-# Taller 2, parte 3: fx-course-service y fx-catalog-service usan la API/SDK de OpenTelemetry
-# (OpenTelemetryConfig) y envian las trazas al OpenTelemetry Collector, que las reenvia a Jaeger
-# (UI en http://localhost:16686).
+# Levanta los tres servicios del taller y el stack de observabilidad:  docker compose up --build -d
+# Los puertos de los servicios son los mismos que al ejecutarlos localmente (8761, 8001, 8002).
+#
+# fx-course-service y fx-catalog-service envian trazas, metricas y logs por OTLP al OpenTelemetry Collector,
+# que los reparte (guia 3, "Configuracion de Observabilidad con OpenTelemetry Collector"):
+#   trazas   -> Jaeger                                    UI: http://localhost:16686
+#   metricas -> exportador Prometheus del Collector (8889) -> Prometheus  UI: http://localhost:9090
+#                                                          -> Grafana     UI: http://localhost:3000 (admin/admin)
+#   logs     -> ./logs/otel-collector.log -> Logstash -> Elasticsearch (9200) -> Kibana  UI: http://localhost:5601
+# Grafana arranca con el dashboard y las alertas del taller 4, y kibana-setup carga en Kibana el dashboard de logs.
+# Trafico de prueba (opcional): docker compose --profile trafico up -d trafico
+#
+# Las herramientas de observabilidad no tienen autenticacion (o usan admin/admin), por eso sus puertos se
+# publican solo en 127.0.0.1 y no quedan accesibles desde la red local.
 name: fx-microservices
 
 services:
@@ -25,8 +34,11 @@ services:
       # Nombre con el que se registra en Eureka: es el que usara el catalogo para llamarlo
       # (homePageUrl = http://fx-course-service:8001/), resoluble dentro de la red de Compose
       EUREKA_INSTANCE_HOSTNAME: fx-course-service
-      # Exportador OTLP de OpenTelemetryConfig: dentro de la red de Compose el Collector no esta en localhost
+      # Dentro de la red de Compose el Collector no esta en localhost:
+      # OTLP/gRPC de OpenTelemetryConfig (trazas, metricas y logs del SDK)
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      # OTLP/HTTP del registro de Micrometer (metricas de Spring Boot, JVM y las propias del controlador)
+      MANAGEMENT_OTLP_METRICS_EXPORT_URL: http://otel-collector:4318/v1/metrics
     depends_on:
       fx-discovery-server:
         condition: service_healthy
@@ -40,8 +52,8 @@ services:
     environment:
       EUREKA_URL: http://fx-discovery-server:8761/eureka/
       EUREKA_INSTANCE_HOSTNAME: fx-catalog-service
-      # Exportador OTLP de OpenTelemetryConfig: dentro de la red de Compose el Collector no esta en localhost
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      MANAGEMENT_OTLP_METRICS_EXPORT_URL: http://otel-collector:4318/v1/metrics
     depends_on:
       fx-discovery-server:
         condition: service_healthy
@@ -63,8 +75,98 @@ services:
     command: ["--config=/etc/otel-collector-config.yaml"]
     volumes:
       - ./otel-collector/otel-collector-config.yaml:/etc/otel-collector-config.yaml
+      # El exportador "file" escribe aqui los logs (otel-collector.log); Logstash lee la misma carpeta
+      - ./logs:/var/log
     ports:
-      - "4319:4317"     # OTLP gRPC receiver
-      - "4320:4318"     # OTLP HTTP receiver
+      - "4319:4317"             # OTLP gRPC receiver
+      - "4320:4318"             # OTLP HTTP receiver
+      - "127.0.0.1:8889:8889"   # Prometheus exporter
     depends_on:
       - jaeger
+      - prometheus
+
+  prometheus:
+    image: prom/prometheus:v2.30.3
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "127.0.0.1:9090:9090"
+
+  grafana:
+    image: grafana/grafana:11.6.0
+    volumes:
+      # Al arrancar: fuente de datos Prometheus, dashboard "Microservicios FutureX — Observabilidad" y reglas de alerta
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      - prometheus
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.28
+    environment:
+      - discovery.type=single-node
+      # Limita el heap: por defecto Elasticsearch reserva la mitad de la memoria del contenedor
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    ports:
+      - "127.0.0.1:9200:9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:7.17.28
+    # Root para poder leer ./logs, donde escribe el Collector (como en la guia)
+    user: root
+    environment:
+      - LS_JAVA_OPTS=-Xms256m -Xmx256m
+      # Sin X-Pack la imagen intenta enviar su monitoreo a Elasticsearch en el arranque
+      - XPACK_MONITORING_ENABLED=false
+    volumes:
+      - ./observability/logstash/logstash.conf:/usr/share/logstash/pipeline/logstash.conf
+      - ./observability/logstash/otlp_logs.rb:/usr/share/logstash/scripts/otlp_logs.rb
+      - ./observability/logstash/otel-logs-template.json:/usr/share/logstash/templates/otel-logs-template.json
+      - ./logs:/var/log
+    ports:
+      - "127.0.0.1:5044:5044"
+      - "127.0.0.1:9600:9600"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:7.17.28
+    environment:
+      # Sin el banner de telemetria ni el aviso de "cluster sin seguridad" (el stack es local y solo escucha en 127.0.0.1)
+      - TELEMETRY_OPTIN=false
+      - XPACK_SECURITY_SHOWINSECURECLUSTERWARNING=false
+    ports:
+      - "127.0.0.1:5601:5601"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+
+  # Tarea de una sola vez: carga en Kibana el patron de indice, las busquedas, las visualizaciones y el dashboard
+  # de logs (observability/kibana/kibana-objects.ndjson) y termina
+  kibana-setup:
+    image: curlimages/curl:8.10.1
+    entrypoint: ["sh", "/setup/kibana-setup.sh"]
+    volumes:
+      - ./observability/kibana:/setup:ro
+    depends_on:
+      - kibana
+    restart: "no"
+
+  # Opcional: trafico continuo contra los servicios para alimentar los dashboards
+  #   docker compose --profile trafico up -d trafico
+  trafico:
+    image: curlimages/curl:8.10.1
+    profiles: ["trafico"]
+    entrypoint: ["sh", "/trafico/generar-trafico.sh"]
+    volumes:
+      - ./observability/trafico:/trafico:ro
+    depends_on:
+      - fx-catalog-service
+      - fx-course-service

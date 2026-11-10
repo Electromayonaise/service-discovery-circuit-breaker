@@ -1,0 +1,2 @@
+# Los scripts se montan en contenedores Linux: deben quedar con LF aunque core.autocrlf=true
+*.sh text eol=lf

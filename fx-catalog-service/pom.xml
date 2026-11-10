@@ -48,6 +48,19 @@
 			<groupId>io.opentelemetry.instrumentation</groupId>
 			<artifactId>opentelemetry-spring-boot-starter</artifactId>
 		</dependency>
+		<!-- Appender de Logback que convierte cada log en un log record de OpenTelemetry (logback-spring.xml).
+		     Es alpha, por eso no lo gestiona opentelemetry-instrumentation-bom: version del mismo release (2.6.0) -->
+		<dependency>
+			<groupId>io.opentelemetry.instrumentation</groupId>
+			<artifactId>opentelemetry-logback-appender-1.0</artifactId>
+			<version>2.6.0-alpha</version>
+		</dependency>
+		<!-- Registro de Micrometer que exporta por OTLP/HTTP al Collector: metricas propias (Timer/Counter),
+		     http.server.requests, JVM, proceso y Resilience4j. Version gestionada por Spring Boot -->
+		<dependency>
+			<groupId>io.micrometer</groupId>
+			<artifactId>micrometer-registry-otlp</artifactId>
+		</dependency>
 
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
