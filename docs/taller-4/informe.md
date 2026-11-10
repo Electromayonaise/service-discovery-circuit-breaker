@@ -10,6 +10,22 @@ Elasticsearch y Kibana, y trazas en Jaeger, todo a través del Collector. La seg
 visualizaciones que pide el taller, cada una con su explicación y evidencia. También incluye dos extras: alertas en
 Grafana y un dashboard de Kibana.
 
+## Correspondencia con la rúbrica
+
+| Criterio | Dónde se cubre |
+|---|---|
+| **1. Implementación (40 %)** | |
+| Configuración de la infraestructura (Docker, servicios) | Parte 1, sección 5: los contenedores, sus puertos y el orden de arranque |
+| Instrumentación de los microservicios | Parte 1, sección 2: proveedores de OpenTelemetry, appender de Logback y métricas propias |
+| Exportación de métricas, logs y trazas | Parte 1, secciones 1, 3 y 4 (cada pipeline); sección 6 (verificación de las tres señales) |
+| **2. Consultas y visualizaciones (60 %)** | |
+| Consulta ELK: correctitud y relevancia | Parte 2, "Consulta ELK": KQL y Query DSL, campos, resultados y correlación con Jaeger |
+| Consulta Prometheus: correctitud y relevancia | Parte 2, "Consulta Prometheus": cómo se calcula, una serie por `outcome` y el valor agregado |
+| Gráfico en Grafana: diseño, claridad y relevancia | Parte 2, "Grafana": 16 paneles en 5 filas, en estado normal y durante una caída |
+| **Extras** | Alertas de Grafana y dashboard de Kibana |
+
+El código fuente está en el repositorio; cada sección enlaza los archivos que describe.
+
 ## Contexto
 
 Los servicios vienen de los talleres anteriores:
@@ -110,7 +126,32 @@ Los objetos de Kibana (patrón de índice, búsquedas, visualizaciones y dashboa
 [kibana-objects.ndjson](../../observability/kibana/kibana-objects.ndjson). El contenedor `kibana-setup` los importa
 al arrancar con [kibana-setup.sh](../../observability/kibana/kibana-setup.sh) mediante la API de *saved objects*.
 
-### 5. Ejecución y generación de tráfico
+### 5. Infraestructura, ejecución y generación de tráfico
+
+[docker-compose.yml](../../docker-compose.yml) define todo el entorno:
+
+| Contenedor | Imagen | Puerto en el host | Función |
+|---|---|---|---|
+| `fx-discovery-server` | build local | 8761 | Eureka |
+| `fx-course-service` | build local | 8001 | Servicio de cursos |
+| `fx-catalog-service` | build local | 8002 | Catálogo, cliente de cursos con Resilience4j |
+| `otel-collector` | `otel/opentelemetry-collector:0.88.0` | 4319/4320 (OTLP), 8889 (métricas) | Recibe las tres señales y las reparte |
+| `jaeger` | `jaegertracing/all-in-one:1.76.0` | 16686 | Trazas |
+| `prometheus` | `prom/prometheus:v2.30.3` | 9090 | Almacena las métricas que expone el Collector |
+| `grafana` | `grafana/grafana:11.6.0` | 3000 | Dashboard y alertas, por provisioning |
+| `elasticsearch` | `elasticsearch:7.17.28` | 9200 | Almacena los logs (un nodo) |
+| `logstash` | `logstash:7.17.28` | 5044, 9600 | Lee el archivo de logs del Collector y lo indexa |
+| `kibana` | `kibana:7.17.28` | 5601 | Consulta y dashboard de logs |
+| `kibana-setup` | `curlimages/curl:8.10.1` | — | Importa los objetos de Kibana y termina |
+| `trafico` | `curlimages/curl:8.10.1` | — | Generador de carga (perfil `trafico`, opcional) |
+
+- **Orden de arranque.** Lo controlan `depends_on` y los *healthchecks*:
+  - los servicios esperan a que Eureka esté sano;
+  - Logstash y Kibana esperan a Elasticsearch;
+  - `kibana-setup` espera a Kibana.
+- **Configuración por variables de entorno.** Los servicios reciben así la URL de Eureka y del Collector.
+- **Acceso solo local.** Las herramientas de observabilidad escuchan únicamente en `127.0.0.1`, porque no tienen
+  autenticación o usan `admin/admin`.
 
 ```bash
 docker compose up --build -d                       # servicios, Collector, Jaeger, Prometheus, Grafana, ELK y kibana-setup
@@ -122,6 +163,23 @@ El contenedor `trafico` ([generar-trafico.sh](../../observability/trafico/genera
 segundo a `/`, `/catalog` y `/firstcourse` del catálogo, y a `/courses` y `/{id}` del servicio de cursos. Uno de
 cada diez ciclos pide `/99`, un curso que no existe y que responde HTTP 500. Las gráficas siguientes se tomaron con
 este tráfico y con dos caídas simuladas de `fx-course-service` (hacia las 15:27 y de 15:37 a 15:40).
+
+### 6. Verificación de la exportación
+
+Al cierre de la prueba, cada herramienta tenía datos de los dos servicios:
+
+| Señal | Comprobación | Resultado |
+|---|---|---|
+| Trazas | `GET http://localhost:16686/api/services` en Jaeger | `fx-catalog-service` y `fx-course-service` |
+| | Operaciones de `fx-catalog-service` | Spans de servidor (`GET /`, `GET /catalog`, `GET /firstcourse`), spans manuales (`getCatalog`, `getCatalogHome`, `getSpecificCourse`) y spans de cliente HTTP |
+| Métricas | Target `otel-collector:8889` en Prometheus | `UP` (captura de la sección 3) |
+| | `count by (exported_job) ({__name__=~"otel_.+", exported_job=~"fx-.+"})` | 992 series de `fx-catalog-service` y 580 de `fx-course-service`, en 115 métricas distintas |
+| Logs | Agregación por `service.name` y `log.level` en `otel-logs-*` | 19 590 documentos |
+| | `fx-catalog-service` | 10 357 documentos: 9 564 INFO, 361 WARN, 432 ERROR |
+| | `fx-course-service` | 9 233 documentos: 9 054 INFO, 179 WARN |
+
+La captura de Jaeger de la parte 2 muestra además que los logs y las trazas están conectados: el `trace.id` de un
+log en Kibana abre la traza correspondiente.
 
 ---
 
