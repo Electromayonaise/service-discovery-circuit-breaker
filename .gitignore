@@ -7,3 +7,6 @@ target/
 .metals/
 .bloop/
 .bsp/
+logs/*
+!logs/.gitkeep
+.playwright-mcp/

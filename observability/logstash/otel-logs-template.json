@@ -1,0 +1,35 @@
+{
+  "index_patterns": ["otel-logs-*"],
+  "order": 1,
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 0
+  },
+  "mappings": {
+    "dynamic_templates": [
+      {
+        "strings_as_keyword": {
+          "match_mapping_type": "string",
+          "mapping": { "type": "keyword", "ignore_above": 1024 }
+        }
+      }
+    ],
+    "properties": {
+      "@timestamp": { "type": "date" },
+      "message": {
+        "type": "text",
+        "fields": { "keyword": { "type": "keyword", "ignore_above": 1024 } }
+      },
+      "log": {
+        "properties": {
+          "level": { "type": "keyword" },
+          "severity_number": { "type": "integer" },
+          "logger": { "type": "keyword" }
+        }
+      },
+      "service": { "properties": { "name": { "type": "keyword" } } },
+      "trace": { "properties": { "id": { "type": "keyword" } } },
+      "span": { "properties": { "id": { "type": "keyword" } } }
+    }
+  }
+}

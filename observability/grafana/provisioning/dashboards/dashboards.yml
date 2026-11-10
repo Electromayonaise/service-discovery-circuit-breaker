@@ -1,0 +1,12 @@
+# Carga al arrancar los dashboards de la carpeta json/ (en el contenedor: /etc/grafana/provisioning/dashboards/json).
+# Quedan en la carpeta "Microservicios FutureX". Se pueden editar desde la interfaz, pero al reiniciar Grafana vuelven a
+# la version del repositorio: para cambiarlos de forma permanente, exportar el JSON y reemplazar el archivo.
+apiVersion: 1
+
+providers:
+  - name: fx-microservicios
+    folder: Microservicios FutureX
+    type: file
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards/json

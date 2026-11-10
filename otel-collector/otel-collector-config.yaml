@@ -1,12 +1,18 @@
-# Configuracion del OpenTelemetry Collector (taller 2, parte 3).
-# Recibe las trazas de fx-course-service y fx-catalog-service por OTLP, las agrupa en lotes y las
-# reenvia a Jaeger por OTLP/gRPC. El exportador debug escribe en el log del Collector un resumen de cada
-# lote recibido, para comprobar que las trazas pasan por aqui.
+# Configuracion del OpenTelemetry Collector (taller 2 parte 3 + guia 3 de observabilidad).
+# Recibe trazas, metricas y logs de fx-course-service y fx-catalog-service por OTLP (gRPC 4317 / HTTP 4318),
+# los agrupa en lotes y los reparte:
+#   - trazas  -> Jaeger (OTLP/gRPC)
+#   - metricas -> endpoint /metrics en el puerto 8889 que Prometheus scrapea (prefijo "otel_")
+#   - logs    -> archivo /var/log/otel-collector.log (carpeta ./logs del repo), que lee Logstash y envia a Elasticsearch
+# El exportador debug escribe en el log del Collector un resumen de cada lote, para comprobar que los datos pasan por aqui.
+# (La guia usa el exportador "logging", que en esta version ya esta deprecado en favor de "debug".)
 receivers:
   otlp:
     protocols:
       grpc:
+        endpoint: 0.0.0.0:4317
       http:
+        endpoint: 0.0.0.0:4318
 
 processors:
   batch:
@@ -16,6 +22,11 @@ exporters:
     endpoint: "jaeger:4317"
     tls:
       insecure: true
+  prometheus:
+    endpoint: "0.0.0.0:8889"
+    namespace: "otel"
+  file:
+    path: /var/log/otel-collector.log
   debug:
     verbosity: basic
 
@@ -25,3 +36,11 @@ service:
       receivers: [otlp]
       processors: [batch]
       exporters: [otlp, debug]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [prometheus, debug]
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [file, debug]
